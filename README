@@ -1,0 +1,105 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=1638
+
+PURPOSE
+
+Research source code.
+Support source code.
+
+REQUIREMENT
+
+Cscope: http://cscope.sourceforge.net/
+Ctags: http://ctags.sourceforge.net/
+
+without cscope and ctags you can use only marks.
+
+USAGE
+
+--NEW--:  mark commands ability added. read sco_command_feature.sco with vim about new feature
+
+First step:
+   Create new file with "sco" extension: [g]vim my_name.sco
+   Read help.
+   Change settings at the beginig of sco file
+
+   Execute one of the commands
+       :SCOSymbol 'class' (for example)
+       :SCOGlobal 'main'
+       :SCOWhoCall 'setValue'
+       :SCOFile 'main'
+       :SCOInclude 'stdafx.h'
+       :SCOText 'Enter password'
+       :SCOGrep ' ".*" '
+       :SCOTag 'gui'
+       :SCOClassInfo 'class[struct]name' (cant take some time)
+
+Second step:
+   Unfold result.
+   Filter result (:Delete :Leave :Filter commands)
+   Preview result (:Preview command or c<Space>p)
+   Preview result using :SCOUp :SCODown commands ( map them on keys <C-Up> <C-Down> for example )
+   Select appropriate row and press <Enter> to open file for edit.
+
+Third step:
+   Move inside file.
+   Select interesting line.
+   Execute :SCOMark command (c<Space>m) or :SCOMarkSmart (c<Space>n)
+
+   Use :SCOMarkSmart for store results for future
+   Change caption of the marks with  :Caption ['sometext'] command or :FileNameCaption
+
+   Use vim search and then :SCOSaveSearch(c<Space>s) to quick overview of find result and to select appropriate one ( To avoid multi n pressing )
+
+   Execute :AppendPlace to select place where new marks will be appear ( example http://groups.google.com/group/SourceCodeObedience/web/content-example )
+
+   Use :SCOReMark for change marks point
+
+Fourth step:
+   Add tags and header information to your marks and text description to quick find later with http://www.vim.org/scripts/script.php?script_id=1791
+
+header: creation of database connection
+   tags: connection, create, database
+some text
+    SCOMark
+
+Debug step:
+
+  when you are going to understand source code with debugger (gdb) you should to use 
+    :TransferToMarks command.
+Copy backtrace lines to sco file. Select them and :TransferToMarks.
+
+Discuss step:
+
+http://groups.google.com/group/SourceCodeObedience/topics
+
+CSCOPE
+
+You don't need to create cscope connection.
+What cscope data base to use you can set by adding (added automatically when sco file first created)
+
+% cscope_db: cscope.out
+
+in the begining of sco file.
+As a result you can have many sco buffers with different cscope connections.
+If your cscope executable installed not in standart place - you can change path to cscope by adding
+
+% cscope_exe: /my_path/cscope
+
+in the begining of sco file.
+
+CTAGS
+
+If you want to use :SCOClassInfo you must have tag file generated with ctags --fields=fks (default settings)
+
+Change % tags_db: path_to_tag_file at the begining of sco file to path for your tag file
+
+VIMRC
+
+set 
+g:sco_default_db
+g:sco_default_exe 
+g:sco_default_tags in your .vimrc to avoid continual change first lines of newly created .sco files
+
+Example 
+let g:sco_default_db = /home/ni/cscope.out
+let g:sco_default_exe = /home/ni/bin/cscope
+let g:sco_default_tags = /home/ni/tags
