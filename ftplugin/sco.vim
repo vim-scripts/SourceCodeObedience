@@ -4,6 +4,7 @@
 "
 " This script allow to work with cscope programm inside vim
 " You can easily store cscope results and filter them
+" Mark system allow to store interesting places of code for future analyse
 "
 " Please mail me problems
 
@@ -26,6 +27,54 @@ let s:sco_requests = {0:'C Symbol', 1:'Global Definition of',4:'Functions callin
 let s:last_sco_buffer = -1
 let s:preview = 0
 
+" save sco result
+function! <SID>SaveResult() "{{{
+	exec "w"
+endfunction "}}}
+" escape search pattern
+function! <SID>EscapePattern(line) "{{{
+	return escape(a:line,'.$^|\')
+endfunction "}}}
+
+" return how many times search pattern match (from the beginig of file)
+function! <SID>Search(line_number) "{{{
+	let l:pattern = getline(a:line_number)
+	let l:pattern = <SID>EscapePattern(l:pattern)
+	let l:pattern = '^'.l:pattern.'$'
+	"echo "Pattern:".l:pattern
+	exec ':0'
+	let l:is_found = search(l:pattern,'c')
+	if l:is_found == 0
+		return 0
+	endif
+
+	let l:jump_count = 1
+	while l:is_found != a:line_number
+		let l:is_found = search(l:pattern,'')
+		let l:jump_count = l:jump_count + 1
+	endwhile
+
+	"echo "jumps:".l:jump_count
+	return l:jump_count
+endfunction "}}}
+
+" move to N'th pattern match 
+function! <SID>JumpTo(pattern, jump_count) "{{{
+	exec ':0'
+	let l:flag = 'c'
+	let l:completed_jumps = 0
+	let l:pattern = <SID>EscapePattern(a:pattern)
+	let l:pattern = '^'.l:pattern.'$'
+	while l:completed_jumps < a:jump_count
+		let l:line_number = search(l:pattern, l:flag)
+		if l:line_number == 0
+			echohl WarningMsg | echo "Can't find pattern:".a:pattern | echohl None
+			return
+		endif
+		let l:completed_jumps = l:completed_jumps + 1
+		let l:flag = ''
+	endwhile
+endfunction "}}}
 " Parse sco settings (% option:value)
 function! <SID>ParseSCOSettings() "{{{
 	let l:line_count = line("$")
@@ -61,14 +110,15 @@ function! <SID>DefaultSetting(name, value) "{{{
 	endif
 endfunction "}}}
 
-function! <SID>SetSettings()
+" set all sco settings 
+function! <SID>SetSettings() "{{{
 	call <SID>ParseSCOSettings()
 	call <SID>DefaultSetting('cscope_db', g:sco_default_db)
 	call <SID>DefaultSetting('cscope_exe', g:sco_default_exe)
-endfunction
+endfunction "}}}
 
 " open last sco buffer
-function! <SID>GoToLastScoBuffer()
+function! <SID>GoToLastScoBuffer() "{{{
 	let l:last_sco_buffer_name = bufname(s:last_sco_buffer)
 
 	if l:last_sco_buffer_name !~ "sco$"
@@ -77,9 +127,9 @@ function! <SID>GoToLastScoBuffer()
 		return 0
 	endif
 
-	exec 'buffer '.s:last_sco_buffer
+	exec 'buffer! '.s:last_sco_buffer
 	return 1
-endfunction
+endfunction "}}}
 
 " put results from cscope
 function! <SID>CScopeResult(type, word) "{{{
@@ -155,11 +205,9 @@ function! <SID>CScopeResult(type, word) "{{{
 	exec ':'.l:first_line
 endfunction "}}}
 
-" filter result inside >>> <<<
-function! <SID>FilterResult(delete_pattern, leave_pattern)
+" function get line number of open fold >>>
+function! <SID>OpenFoldLineNumber() "{{{
 	let l:first_line_num = -1
-	let l:last_line_num = -1
-
 	let l:line_num = line('.')
 	while l:line_num > 0
 		let l:line = getline(l:line_num)
@@ -169,7 +217,12 @@ function! <SID>FilterResult(delete_pattern, leave_pattern)
 		endif
 		let l:line_num = l:line_num - 1
 	endwhile
-		
+	return l:first_line_num
+endfunction "}}}
+
+" function get line number of close fold <<<
+function! <SID>CloseFoldLineNumber() "{{{
+	let l:last_line_num = -1
 	let l:line_num = line('.')
 	let l:line_count = line('$')
 	while l:line_num <= l:line_count
@@ -180,6 +233,26 @@ function! <SID>FilterResult(delete_pattern, leave_pattern)
 		endif
 		let l:line_num = l:line_num + 1
 	endwhile
+	return l:last_line_num
+endfunction "}}}
+
+" allign folded result
+function! <SID>AllignFoldResult()
+	let l:first_line_num = <SID>OpenFoldLineNumber()
+	let l:last_line_num = <SID>CloseFoldLineNumber()
+
+	if l:first_line_num<0 || l:last_line_num<0
+		return
+	endif
+
+	call <SID>AllignResult(l:first_line_num+1, l:last_line_num-1)
+	call <SID>AllignResultNewMarks(l:first_line_num+1, l:last_line_num-1)
+endfunction
+
+" filter result inside >>> <<<
+function! <SID>FilterResult(delete_pattern, leave_pattern) "{{{
+	let l:first_line_num = <SID>OpenFoldLineNumber()
+	let l:last_line_num = <SID>CloseFoldLineNumber()
 
 	if l:first_line_num < 0 || l:last_line_num < 0
 		return
@@ -196,10 +269,11 @@ function! <SID>FilterResult(delete_pattern, leave_pattern)
 		endif
 		let l:line_num = l:line_num + 1
 	endwhile
-endfunction
+	call <SID>AllignFoldResult()
+endfunction "}}}
 
 " allign sco result
-function! <SID>AllignResult(first_line, last_line)
+function! <SID>AllignResult(first_line, last_line) "{{{
 	let l:pattern = '^#\s\+\(\S\+\)\s\+\(\S\+\)\s\+\(\d\+\)\s\+\(.*\)$'
 
 	let l:max_file_name_length = 0
@@ -209,6 +283,10 @@ function! <SID>AllignResult(first_line, last_line)
 	let l:line_number = a:first_line
 	while l:line_number <= a:last_line
 		let l:line = getline(l:line_number)
+		if l:line !~ l:pattern
+			let l:line_number = l:line_number + 1
+			continue
+		endif
 
 		let l:file_name = substitute(l:line, l:pattern, '\1', '')
 		let l:function_name = substitute(l:line, l:pattern, '\2', '')
@@ -233,6 +311,10 @@ function! <SID>AllignResult(first_line, last_line)
 	let l:line_number = a:first_line
 	while l:line_number <= a:last_line
 		let l:line = getline(l:line_number)
+		if l:line !~ l:pattern
+			let l:line_number = l:line_number + 1
+			continue
+		endif
 
 		let l:file_name = substitute(l:line, l:pattern, '\1', '')
 		let l:function_name = substitute(l:line, l:pattern, '\2', '')
@@ -244,10 +326,59 @@ function! <SID>AllignResult(first_line, last_line)
 
 		let l:line_number = l:line_number + 1
 	endwhile
-endfunction
+endfunction "}}}
+
+" allign sco result (new marks format)
+function! <SID>AllignResultNewMarks(first_line, last_line) "{{{
+	let l:pattern = '^@\s\+\(\S\+\)\s\+\(\d\+\)\s\(.*\)$'
+
+	let l:max_file_name_length = 0
+	let l:max_repeat_count_length = 0
+
+	let l:line_number = a:first_line
+	while l:line_number <= a:last_line
+		let l:line = getline(l:line_number)
+
+		if l:line !~ l:pattern
+			let l:line_number = l:line_number + 1
+			continue
+		endif
+
+		let l:file_name = substitute(l:line, l:pattern, '\1', '')
+		let l:repeat_count = substitute(l:line, l:pattern, '\2', '')
+
+		if strlen(l:file_name) > l:max_file_name_length
+			let l:max_file_name_length = strlen(l:file_name)
+		endif
+
+		if strlen(l:repeat_count) > l:max_repeat_count_length
+			let l:max_repeat_count_length = strlen(l:repeat_count)
+		endif
+
+		let l:line_number = l:line_number + 1
+	endwhile
+
+	let l:line_number = a:first_line
+	while l:line_number <= a:last_line
+		let l:line = getline(l:line_number)
+		if l:line !~ l:pattern
+			let l:line_number = l:line_number + 1
+			continue
+		endif
+
+		let l:file_name = substitute(l:line, l:pattern, '\1', '')
+		let l:repeat_count = substitute(l:line, l:pattern, '\2', '')
+		let l:search_pattern = substitute(l:line, l:pattern, '\3', '')
+
+		let l:new_line = printf('@ %-'.max_file_name_length.'s %'.max_repeat_count_length.'s %s', l:file_name, l:repeat_count, l:search_pattern)
+		call setline(l:line_number, l:new_line)
+
+		let l:line_number = l:line_number + 1
+	endwhile
+endfunction "}}}
 
 " add mark from file
-function! <SID>AddMark()
+function! <SID>AddMark() "{{{
 	let l:line_number = line('.')
 	let l:line = getline('.')
 	let l:file_name = expand('%:p')
@@ -270,27 +401,64 @@ function! <SID>AddMark()
 	endwhile
 
 	call <SID>AllignResult(l:line_number+1, line('$'))
-endfunction
+endfunction "}}}
+
+" add smart mark
+function! <SID>AddSmartMark() "{{{
+	let l:line = getline('.')
+	let l:file_name = expand('%:p')
+	let l:jumps_count = <SID>Search(line('.'))
+
+	if ! <SID>GoToLastScoBuffer()
+		return
+	endif
+
+	let l:smart_mark_line = '@ '.l:file_name.' '.l:jumps_count.' '.l:line
+	call append(line('$'), l:smart_mark_line)
+
+	let l:line_number = line('$')
+	while l:line_number >= 0
+		let l:line = getline(l:line_number)
+		if l:line !~ '^@'
+			break
+		endif
+		let l:line_number = l:line_number - 1
+	endwhile
+
+	call <SID>AllignResultNewMarks(l:line_number+1, line('$'))
+endfunction "}}}
 
 " select file to edit
 function! <SID>EditFile() "{{{
 	let l:pattern = '^#\s\+\(\S\+\)\s\+\(\S\+\)\s\+\(\d\+\)\s\+\(.*\)$'
 	let l:current_line = getline('.')
-	if l:current_line !~ l:pattern
+	if l:current_line =~ l:pattern
+		let l:file_name = substitute(l:current_line, l:pattern, '\1','')
+		let l:line_number = substitute(l:current_line, l:pattern, '\3','')
+
+		if s:preview
+			exec 'pclose'
+		endif
+		exec 'edit  +:'.l:line_number.' '.l:file_name
 		return
 	endif
 
-	let l:file_name = substitute(l:current_line, l:pattern, '\1','')
-	let l:line_number = substitute(l:current_line, l:pattern, '\3','')
-
-	if s:preview
-		exec 'pclose'
+	let l:pattern = '^@\s\+\(\S\+\)\s\+\(\d\+\)\s\(.*\)$'
+	if l:current_line =~ l:pattern
+		let l:file_name = substitute(l:current_line, l:pattern, '\1','')
+		let l:repeat_count = substitute(l:current_line, l:pattern, '\2','')
+		let l:search_pattern = substitute(l:current_line, l:pattern, '\3','') 
+		if s:preview
+			exec 'pclose'
+		endif
+		exec 'edit '.l:file_name
+		call <SID>JumpTo(l:search_pattern, l:repeat_count)
+		return
 	endif
-	exec 'edit  +:'.l:line_number.' '.l:file_name
 endfunction "}}}
 
 " cursor move handler
-function! <SID>Cursor_move_handler()
+function! <SID>Cursor_move_handler() "{{{
 	if ! s:preview
 		return
 	endif
@@ -305,10 +473,10 @@ function! <SID>Cursor_move_handler()
 	else
 		exec 'pclose'
 	endif
-endfunction
+endfunction "}}}
 
 " toggle preview
-function! <SID>TogglePreview()
+function! <SID>TogglePreview() "{{{
 	if s:preview
 		let s:preview = 0
 		exec 'pclose'
@@ -320,7 +488,7 @@ function! <SID>TogglePreview()
 		call <SID>Cursor_move_handler()
 		return
 	endif
-endfunction
+endfunction "}}}
 
 " put help to sco buffer
 function! <SID>AddHelpLines() "{{{
@@ -329,6 +497,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, '/Hot keys local to this buffer:/')
 	call add(l:help_lines, '<CR> - select file to edit from result')
 	call add(l:help_lines, 'c<Space>p - Toggle preview mode')
+	call add(l:help_lines, 'c<Space>a - Allign folded result')
 	call add(l:help_lines, '/Global hot keys:/')
 	call add(l:help_lines, 'c<Space>g - Find Global Definition of symbol under cursor')
 	call add(l:help_lines, 'c<Space>c - Find C Symbol')
@@ -336,11 +505,13 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, 'c<Space>w - Find Functions calling this function')
 	call add(l:help_lines, 'c<Space>b - Open last sco buffer')
 	call add(l:help_lines, 'c<Space>m - Mark current line')
+	call add(l:help_lines, 'c<Space>n - Mark smart current line')
 	call add(l:help_lines, '/Commands local to this buffer:/')
 	call add(l:help_lines, ":Delete 'pattern' - delete all rows which match 'pattern' inside folded result")
 	call add(l:help_lines, ":Leave 'pattern' - leave only rows which match 'pattern' inside folded result")
 	call add(l:help_lines, ":Filter 'delete_pattern', 'leave_pattern' - leave only rows which match 'pattern' inside folded result and delete rows with 'delete_pattern'")
 	call add(l:help_lines, ':Preview - toggle preview mode')
+	call add(l:help_lines, ':Allign - allign folded result')
 	call add(l:help_lines, '/Global commands:/')
 	call add(l:help_lines, ":SCOSymbol 'symbolname' - find C Symbol")
 	call add(l:help_lines, ":SCOGlobal 'functionname' - find Global definition")
@@ -350,6 +521,14 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ":SCOGrep 'pattern' - find grep pattern")
 	call add(l:help_lines, ":SCOBuffer - go to last sco buffer")
 	call add(l:help_lines, ":SCOMark - mark current line")
+	call add(l:help_lines, ":SCOMarkSmart - mark smart current line")
+	call add(l:help_lines, "/Format of mark/")
+	call add(l:help_lines, "# filename functionname linenumber body")
+	call add(l:help_lines, "/Format of smart mark/")
+	call add(l:help_lines, "@ filename jumpscount pattern")
+	call add(l:help_lines, "/jumpscount/")
+	call add(l:help_lines, "if you have in text two patterns '^  return ERROR_CODE$' and mark second of them")
+	call add(l:help_lines, "then jumpscount will be equal 2")
 	call add(l:help_lines, '<<< sco help')
 	call add(l:help_lines, '>>> fold help')
 	call add(l:help_lines, 'zj - move to next fold')
@@ -364,24 +543,31 @@ function! <SID>AddHelpLines() "{{{
 	call append(line('$'), l:help_lines)
 endfunction "}}}
 
-function! <SID>EnterScoBuffer()
+function! <SID>EnterScoBuffer() "{{{
 	let s:last_sco_buffer = bufnr('%')
 	call <SID>Cursor_move_handler()
-endfunction
+endfunction "}}}
+
+function! <SID>LeaveScoBuffer() "{{{
+	echo "test"
+	echo "test"
+	echo "test"
+	echo "test"
+	call <SID>SaveResult()
+endfunction "}}}
 
 " set highlight and commands - called when .sco file readed
 function! <SID>Prepare_sco_settings() "{{{
-	setlocal autowriteall
 	setlocal filetype=sco
 	setlocal foldmethod=marker
 	setlocal foldmarker=>>>,<<<
 	setlocal foldclose=all
-	setlocal updatetime=500
+	setlocal cursorline
+	setlocal autowriteall
 
 	call <SID>SetSettings()
 
 	let s:last_sco_buffer = bufnr('%')
-
 
 	command! -nargs=1 SCOSymbol call <SID>CScopeResult(0, <args>)
 	command! -nargs=1 SCOGlobal call <SID>CScopeResult(1, <args>)
@@ -391,13 +577,16 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! -nargs=1 SCOInclude call <SID>CScopeResult(8, <args>)
 	command! SCOBuffer call <SID>GoToLastScoBuffer()
 	command! SCOMark call <SID>AddMark()
+	command! SCOMarkSmart call <SID>AddSmartMark()
 	command! -buffer Preview call <SID>TogglePreview()
+	command! -buffer Allign call <SID>AllignFoldResult()
 	command! -buffer -nargs=1 Delete call <SID>FilterResult(<args>, '$^')
-	command! -buffer -nargs=1 Leave call <SID>FilterResult('*', <args>)
+	command! -buffer -nargs=1 Leave call <SID>FilterResult('.*', <args>)
 	command! -buffer -nargs=1 -nargs=1 -complete=tag Filter call <SID>FilterResult(<args>)
 
 	nnoremap <buffer> <CR> :call <SID>EditFile()<CR>
 	nnoremap <buffer> c<Space>p :Preview<CR>
+	nnoremap <buffer> c<Space>a :Allign<CR>
 
 	nnoremap c<Space>g :SCOGlobal expand('<cword>')<CR>
 	nnoremap c<Space>c :SCOSymbol expand('<cword>')<CR>
@@ -406,6 +595,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	nnoremap c<Space>f :SCOInclude expand('<cfile>')<CR>
 	nnoremap c<Space>b :SCOBuffer<CR>
 	nnoremap c<Space>m :SCOMark<CR>
+	nnoremap c<Space>n :SCOMarkSmart<CR>
 
 	syn match sco_header /^% cscope_db: / nextgroup=sco_header_param
 	syn match sco_header /^% cscope_exe: / nextgroup=sco_header_param
@@ -420,6 +610,11 @@ function! <SID>Prepare_sco_settings() "{{{
 	syn match sco4 /\s\S\+/ nextgroup=sco5 contained skipwhite
 	syn region sco5 start="\s" end="$" contains=Comment,Number,Float contained keepend
 
+	syn match mark1 /^@/ nextgroup=mark2 skipwhite
+	syn match mark2 /\s\S\+/ nextgroup=mark3 contained skipwhite
+	syn match mark3 /\s\S\+/ nextgroup=mark4 contained skipwhite
+	syn region mark4 start='\s' end='$' contained keepend
+
 	hi link sco_header	Define
 	hi link sco_header_param   Identifier
 	hi link sco_comment     Comment
@@ -430,6 +625,11 @@ function! <SID>Prepare_sco_settings() "{{{
 	hi link sco3		Identifier
 	hi link sco4		Underlined
 	hi link sco5		String
+
+	hi link mark1	Comment
+	hi link mark2	Statement
+	hi link mark3	Special
+	hi link mark4  	String
 endfunction "}}}
 
 " set highlight and commands, put help - called when .sco file created
