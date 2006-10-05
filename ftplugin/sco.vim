@@ -33,7 +33,7 @@ function! <SID>SaveResult() "{{{
 endfunction "}}}
 " escape search pattern
 function! <SID>EscapePattern(line) "{{{
-	return escape(a:line,'.$^|\')
+	return escape(a:line,'.$^|\*[]')
 endfunction "}}}
 
 " return how many times search pattern match (from the beginig of file)
