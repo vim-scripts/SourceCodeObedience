@@ -9,13 +9,17 @@
 " Please mail me problems
 
 if exists('g:sco_plugin_loaded')
-	finish
+    finish
 endif
 
 let g:sco_plugin_loaded = 1
 
 if ! exists('g:sco_default_db')
 	let g:sco_default_db = "cscope.out"
+endif
+
+if ! exists('g:sco_default_tags')
+	let g:sco_default_tags = "tags"
 endif
 
 if ! exists('g:sco_default_exe')
@@ -31,13 +35,310 @@ let s:sco_requests = {0:'C Symbol', 1:'Global Definition of',4:'Functions callin
 let s:last_sco_buffer = -1
 let s:preview = 0
 
+let s:ResultLineNumber = 0
+
+" compare tag elements for sort
+function! s:SortElementsByNamespaceFunction(tag1, tag2)
+    let ns1 = a:tag1['namespace']
+    let ns2 = a:tag2['namespace']
+    let kind1 = a:tag1['kind']
+    let kind2 = a:tag2['kind']
+
+    if ns1 < ns2
+        return -1
+    endif
+    if ns1 > ns2
+        return 1
+    endif
+
+    if ns1 == ns2
+        if kind1 < kind2
+            return -1
+        endif
+        if kind1 > kind2
+            return 1
+        endif
+
+        if kind1 == kind2
+            return 0
+        endif
+    endif
+endfunction!
+
+function! s:SortNamesInOrderFunction(tag1, tag2)
+    let name1 = a:tag1['name']
+    let name2 = a:tag2['name']
+
+    if name1 == name2 
+        return 0
+    endif
+
+    if name1 > name2
+        return 1
+    endif
+
+    if name1 < name2
+        return -1
+    endif
+endfunction
+
+" function add field to dictionary 'namespace' to use instead of 'class', 'enum', etc.
+" set newnamespace equal 1 if it is 'class', 'enum', etc.
+function! s:ExpandTagElement(tag_element)
+    let result = a:tag_element
+
+    let kind = result['kind']
+    let result['namespace'] = ''
+    let result['newnamespace'] = 0
+
+    if has_key(result, 'class')
+        let result['namespace'] = result['class']
+    elseif has_key(result, 'struct')
+        let result['namespace'] = result['struct']
+    elseif has_key(result, 'enum')
+        let result['namespace'] = result['enum']
+    endif
+
+    if kind == 'c' || kind == 'g' || kind == 's'
+        let result['newnamespace'] = 1
+        let result['kind'] = '_'.kind
+        if result['namespace'] != '' 
+            let result['namespace'] .= '::'.result['name']
+        else
+            let result['namespace'] .= result['name']
+        endif
+    endif
+
+    return result
+endfunction
+
+function! s:GatherClassInfo(class_name)
+    let result = []
+    let tag_list = taglist('.*')
+
+
+    let reg_class_name = '^'.a:class_name.'[:!]'
+
+    " move through all tags in tag file
+    for tag_element in tag_list
+        let ex_tag_element = s:ExpandTagElement(tag_element)
+        let name = ex_tag_element['name']
+        let kind = ex_tag_element['kind']
+
+        if (kind == '_c' || kind == '_s') && name == a:class_name
+            call add(result, ex_tag_element)
+            continue
+        endif
+
+        let parent_name = ex_tag_element['namespace'].'!'
+        if parent_name =~ reg_class_name
+            call add(result, ex_tag_element)
+        endif
+    endfor
+
+    return result
+endfunction
+
+function! s:GetPrototype(element)
+    let kind = a:element['kind']
+
+    if kind == '_c'
+        return a:element['name']
+    endif
+
+    if kind == '_s'
+        return a:element['name']
+    endif
+
+    if kind == '_g'
+        return a:element['name']
+    endif
+    
+    if kind == 'e'
+        return a:element['name']
+    endif
+
+    if kind == 'm' || kind == 'f'
+        return a:element['name']
+    endif
+endfunction
+
+function! s:AddResultLine(line)
+    call append( s:ResultLineNumber, a:line )
+    let s:ResultLineNumber += 1
+endfunction
+
+function! s:PromptByKind(kind)
+    if a:kind == 'm'
+        return 'Members'
+    endif
+
+    if a:kind == 'f'
+        return 'Methods'
+    endif
+
+    if a:kind == '_c'
+        return 'class'
+    endif
+
+    if a:kind == '_s'
+        return 'struct'
+    endif
+
+    if a:kind == '_g'
+        return 'enum'
+    endif
+endfunction
+
+function! s:ShowElement(element)
+    let name = a:element['name']
+    let namespace = a:element['namespace']
+    let kind = a:element['kind']
+
+    " suppose we have cmd as search pattern
+    let cmd = a:element['cmd']
+    let reg_pattern = '\/\^\(.*\)\$\/'
+    let search_line = substitute(cmd, reg_pattern, '\1', '')
+
+    let prompt = s:GetPrototype(a:element)
+
+    if kind == '_c'
+        let prompt = 'definition'
+    elseif kind == '_s'
+        let prompt = 'definition'
+    elseif kind == '_g'
+        let prompt = 'defintion'
+    endif 
+
+    call s:AddResultLine(s:CreateSmartMarkLine(a:element['filename'], search_line, 1, prompt))
+endfunction
+
+function! s:ShowList(list)
+    for tag_element in a:list
+        call s:ShowElement(tag_element)
+    endfor
+endfunction
+
+function! s:ShowResult(list, mainnamespace)
+    if empty(a:list)
+        return
+    endif
+
+    let namespace_stack = []
+    call add(namespace_stack, a:mainnamespace)
+
+    let whole_list_pos = 0
+    while whole_list_pos < len(a:list)
+        "echo "***** new namepsace"
+        let namespace_list = s:SplitResultByNamespaces(a:list, whole_list_pos)
+        let namespace = namespace_list[0]['namespace']
+        let kind = namespace_list[0]['kind']
+
+    
+        while ! empty(namespace_stack)
+            let last_namespace = namespace_stack[-1]
+            if namespace !~ ('^'.last_namespace)
+                call remove(namespace_stack, -1) 
+                call s:AddResultLine('<<<')
+                continue
+            endif
+            break
+        endwhile
+
+        if namespace != a:mainnamespace
+            call add(namespace_stack, namespace)
+        endif
+
+        call s:AddResultLine('>>> '.s:PromptByKind(kind).' '.namespace)
+
+        let kind_pos = 0
+        while kind_pos < len(namespace_list)
+            "echo "***** new kind"
+
+            let kind_list = s:SplitResultByKind(namespace_list, kind_pos)
+            let kind = kind_list[0]['kind']
+            let new_name_space = kind_list[0]['newnamespace']
+
+            let need_wrap = ! new_name_space && kind != 'e'
+            if need_wrap 
+                call s:AddResultLine('>>> '.s:PromptByKind(kind))
+            endif
+
+            call s:ShowList(sort(kind_list,'s:SortNamesInOrderFunction'))
+
+            if need_wrap
+                call s:AddResultLine('<<<')
+            endif
+
+            let kind_pos += len(kind_list)
+        endwhile
+
+        let whole_list_pos += len(namespace_list)
+    endwhile
+
+    for el in (namespace_stack)
+        call s:AddResultLine('<<<')
+    endfor
+endfunction
+
+function! s:SplitResultByField(list, begin, field_name)
+    let first_pos = a:begin
+    let last_pos = a:begin
+    let first_name = a:list[first_pos][a:field_name]
+    let list_len = len(a:list)
+
+    for i in range(first_pos, list_len-1)
+        let name = a:list[i][a:field_name]
+        if name != first_name
+            break
+        endif
+        let last_pos += 1
+    endfor
+
+    return a:list[first_pos : last_pos-1]
+endfunction
+
+function! s:SplitResultByNamespaces(list, begin)
+    return s:SplitResultByField(a:list, a:begin, 'namespace')
+endfunction
+
+function! s:SplitResultByKind(list, begin)
+    return s:SplitResultByField(a:list, a:begin, 'kind')
+endfunction
+
+function! s:AddClassInfo(class_name)
+    if ! s:GoToLastScoBuffer()
+        return
+    endif
+    let old_tags = &tags
+    call s:CommentMsg('please wait')
+    let s:ResultLineNumber = line('$')
+    let first_result_line = s:ResultLineNumber
+
+    call s:SetSettings()
+    let &tags = s:sco_settings['tags_db']
+    let result = s:GatherClassInfo(a:class_name)
+    if empty(result)
+        call s:ErrorMsg('tag list empty')
+        let &tags = old_tags
+        return
+    endif
+    call sort(result, 's:SortElementsByNamespaceFunction')
+    call s:ShowResult(result, a:class_name)
+
+    if first_result_line == s:ResultLineNumber
+        call s:ErrorMsg("couldn't find information about \"".a:class_name.'" class')
+    endif
+    let &tags = old_tags
+endfunction
+
 " save sco result
 function! <SID>SaveResult() "{{{
 	exec "w"
 endfunction "}}}
 " escape search pattern
 function! <SID>EscapePattern(line) "{{{
-	return escape(a:line,'.$^|\*[]')
+	return escape(a:line,'.$^|\*[]~')
 endfunction "}}}
 
 function! <SID>SaveBuffer()
@@ -46,6 +347,10 @@ endfunction
 
 function! <SID>ErrorMsg(msg)
     echohl WarningMsg | echo a:msg | echohl None
+endfunction
+
+function! <SID>CommentMsg(msg)
+    echohl Comment | echo a:msg | echohl None
 endfunction
 
 "wrap range of lines with >>> <<<
@@ -182,8 +487,9 @@ endfunction "}}}
 " set all sco settings 
 function! <SID>SetSettings() "{{{
 	call <SID>ParseSCOSettings()
-	call <SID>DefaultSetting('cscope_db', g:sco_default_db)
+	call <SID>DefaultSetting('tags_db', g:sco_default_tags)
 	call <SID>DefaultSetting('cscope_exe', g:sco_default_exe)
+	call <SID>DefaultSetting('cscope_db', g:sco_default_db)
 endfunction "}}}
 
 " open last sco buffer
@@ -490,29 +796,34 @@ function! <SID>AddMark() "{{{
 	call <SID>AllignResult(l:line_number+1, line('$'))
 endfunction "}}}
 
+function! s:CreateSmartMarkLine(file_name, search_pattern, jumps_count, caption)
+	let result = '@ '.a:file_name.' '.a:jumps_count.' '.a:search_pattern.<SID>CreateCommentCaption(a:caption)
+        return result
+endfunction
+
 " add smart mark
 function! <SID>AddSmartMark() "{{{
-	let l:line = getline('.')
-	let l:file_name = expand('%:p')
-	let l:jumps_count = <SID>Search(line('.'))
+	let line = getline('.')
+	let file_name = expand('%:p')
+	let jumps_count = <SID>Search(line('.'))
 
 	if ! <SID>GoToLastScoBuffer()
 		return
 	endif
 
-	let l:smart_mark_line = '@ '.l:file_name.' '.l:jumps_count.' '.l:line.<SID>CreateCommentCaption(l:line)
-	call append(line('$'), l:smart_mark_line)
+        let smart_mark_line = s:CreateSmartMarkLine(file_name, line, jumps_count, line)
+	call append(line('$'), smart_mark_line)
 
-	let l:line_number = line('$')
-	while l:line_number >= 0
-		let l:line = getline(l:line_number)
-		if l:line !~ '^@'
+	let line_number = line('$')
+	while line_number >= 0
+		let line = getline(l:line_number)
+		if line !~ '^@'
 			break
 		endif
-		let l:line_number = l:line_number - 1
+		let line_number = l:line_number - 1
 	endwhile
 
-	call <SID>AllignResultNewMarks(l:line_number+1, line('$'))
+	call <SID>AllignResultNewMarks(line_number+1, line('$'))
 endfunction "}}}
 
 " make small addition to smart mark as comment
@@ -646,6 +957,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ":Caption ['new_caption'] - change or set caption of smart marks")
 	call add(l:help_lines, "\:[range]Wrap ['fold comment'] - wrap range of lines with  > > >   < < < ")
 	call add(l:help_lines, '/Global commands:/')
+	call add(l:help_lines, ":SCOClassInfo 'class[struct|enum]name' - add information about class(struct, enum). Tested on c++. (Using tags. Tags must be builded with ctags --fields=fks (default settings))")
 	call add(l:help_lines, ":SCOSymbol 'symbolname' - find C Symbol")
 	call add(l:help_lines, ":SCOGlobal 'functionname' - find Global definition")
 	call add(l:help_lines, ":SCOFile 'filename' - find file")
@@ -668,9 +980,9 @@ function! <SID>AddHelpLines() "{{{
 endfunction "}}}
 
 function! <SID>SetScoFoldOptions()
-    let v:old_fold_open = &foldopen
-    let v:old_fold_close = &foldclose
-    let v:old_fill_chars = &fillchars 
+    let s:old_fold_open = &foldopen
+    let s:old_fold_close = &foldclose
+    let s:old_fill_chars = &fillchars 
     highlight! link OldFolded Folded
 
     let &foldopen=''
@@ -687,9 +999,9 @@ function! <SID>EnterScoBuffer() "{{{
 endfunction "}}}
 
 function! <SID>LeaveScoBuffer() "{{{
-    let &foldopen = v:old_fold_open
-    let &foldclose = v:old_fold_close
-    let &fillchars = v:old_fill_chars
+    let &foldopen = s:old_fold_open
+    let &foldclose = s:old_fold_close
+    let &fillchars = s:old_fill_chars
     highlight! link Folded OldFolded
 endfunction "}}}
 
@@ -745,6 +1057,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! -nargs=1 SCOGrep call <SID>CScopeResult(6, <args>)
 	command! -nargs=1 SCOFile call <SID>CScopeResult(7, <args>)
 	command! -nargs=1 SCOInclude call <SID>CScopeResult(8, <args>)
+        command! -nargs=1 SCOClassInfo call s:AddClassInfo(<args>)
 	command! SCOBuffer call <SID>GoToLastScoBuffer()
 	command! SCOMark call <SID>AddMark()
 	command! SCOMarkSmart call <SID>AddSmartMark()
@@ -776,6 +1089,7 @@ function! <SID>Prepare_sco_settings() "{{{
 
 	syn match sco_header /^% cscope_db: / nextgroup=sco_header_param
 	syn match sco_header /^% cscope_exe: / nextgroup=sco_header_param
+	syn match sco_header /^% tags_db: / nextgroup=sco_header_param
 	syn match sco_comment /^\/.\+\/$/
 
 	syn match sco_header_param /.*/ contained
