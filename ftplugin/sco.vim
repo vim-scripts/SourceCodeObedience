@@ -6,7 +6,8 @@
 " You can easily store cscope results and filter them
 " Mark system allow to store interesting places of code for future analyse
 "
-" Please mail me problems
+" Create new yourname.sco file and read help
+" Please email me problems
 
 if exists('g:sco_plugin_loaded')
     finish
@@ -81,6 +82,67 @@ function! s:SortNamesInOrderFunction(tag1, tag2)
         return -1
     endif
 endfunction
+function! s:ListCompare(list1, list2)
+    let len1 = len(a:list1)
+    let len2 = len(a:list2)
+
+    let minlen = len1 > len2 ? len2 : len1
+
+    for i in range(minlen)
+        if a:list1[i] == a:list2[i]
+            continue
+        endif
+
+        if a:list1[i] > a:list2[i]
+            return 1
+        else
+            return -1
+        endif
+    endfor
+        
+    return len1 > len2 ? 1 : -1
+endfunction
+
+function! s:InNamespace(parent, child)
+    let list1 = split(a:parent, '::')
+    let list2 = split(a:child, '::')
+
+    let len1 = len(list1)
+    let len2 = len(list2)
+
+    let minlen = len1 > len2 ? len2 : len1
+    for i in range(minlen)
+        if list1[i] != list2[i]
+            return 0
+        endif
+    endfor
+    return 1
+endfunction
+
+function! s:SortElementsByNamespaceFunction2(tag1, tag2)
+    let ns1 = a:tag1['namespace']
+    let ns2 = a:tag2['namespace']
+    let kind1 = a:tag1['kind']
+    let kind2 = a:tag2['kind']
+
+    let ns_l1 = split(ns1, '::')
+    let ns_l2 = split(ns2, '::')
+
+    if ns_l1 == ns_l2
+        if kind1 < kind2
+            return -1
+        endif
+        if kind1 > kind2
+            return 1
+        endif
+
+        if kind1 == kind2
+            return 0
+        endif
+    endif
+
+    return s:ListCompare(ns_l1, ns_l2)
+endfunction!
 
 " function add field to dictionary 'namespace' to use instead of 'class', 'enum', etc.
 " set newnamespace equal 1 if it is 'class', 'enum', etc.
@@ -132,6 +194,22 @@ function! s:GatherClassInfo(class_name)
 
         let parent_name = ex_tag_element['namespace'].'!'
         if parent_name =~ reg_class_name
+            call add(result, ex_tag_element)
+        endif
+    endfor
+
+    return result
+endfunction
+
+function! s:GatherAllClasseInfo()
+    let result = []
+    let tag_list = taglist('.*')
+
+    " move through all tags in tag file
+    for tag_element in tag_list
+        let ex_tag_element = s:ExpandTagElement(tag_element)
+
+        if ex_tag_element['namespace'] != ''
             call add(result, ex_tag_element)
         endif
     endfor
@@ -225,7 +303,9 @@ function! s:ShowResult(list, mainnamespace)
     endif
 
     let namespace_stack = []
-    call add(namespace_stack, a:mainnamespace)
+    if a:mainnamespace != ''
+       " call add(namespace_stack, a:mainnamespace)
+    endif
 
     let whole_list_pos = 0
     while whole_list_pos < len(a:list)
@@ -237,7 +317,8 @@ function! s:ShowResult(list, mainnamespace)
     
         while ! empty(namespace_stack)
             let last_namespace = namespace_stack[-1]
-            if namespace !~ ('^'.last_namespace)
+
+            if ! s:InNamespace(last_namespace, namespace) 
                 call remove(namespace_stack, -1) 
                 call s:AddResultLine('<<<')
                 continue
@@ -245,9 +326,13 @@ function! s:ShowResult(list, mainnamespace)
             break
         endwhile
 
-        if namespace != a:mainnamespace
-            call add(namespace_stack, namespace)
+        if empty(namespace_stack)
+            call s:AddResultLine('/ '.namespace.' /')
         endif
+
+       " if namespace != a:mainnamespace
+            call add(namespace_stack, namespace)
+       " endif
 
         call s:AddResultLine('>>> '.s:PromptByKind(kind).' '.namespace)
 
@@ -317,18 +402,32 @@ function! s:AddClassInfo(class_name)
 
     call s:SetSettings()
     let &tags = s:sco_settings['tags_db']
-    let result = s:GatherClassInfo(a:class_name)
+
+    if a:class_name != ''
+        let result = s:GatherClassInfo(a:class_name)
+    else
+        let result = s:GatherAllClasseInfo()
+    endif
+
     if empty(result)
         call s:ErrorMsg('tag list empty')
         let &tags = old_tags
         return
     endif
-    call sort(result, 's:SortElementsByNamespaceFunction')
+    call sort(result, 's:SortElementsByNamespaceFunction2')
     call s:ShowResult(result, a:class_name)
 
     if first_result_line == s:ResultLineNumber
-        call s:ErrorMsg("couldn't find information about \"".a:class_name.'" class')
+        if a:class_name != ''
+            call s:ErrorMsg("couldn't find information about \"".a:class_name.'" class')
+        else
+            call s:ErrorMsg("couldn't find information about classes")
+        endif
+    elseif a:class_name == ''
+        call append(first_result_line, '>>> Classes information')
+        call append(s:ResultLineNumber, '<<<')
     endif
+
     let &tags = old_tags
 endfunction
 
@@ -437,18 +536,44 @@ function! <SID>JumpTo(pattern, jump_count) "{{{
 	exec ':0'
 	let l:flag = 'c'
 	let l:completed_jumps = 0
-	let l:pattern = <SID>EscapePattern(a:pattern)
-	let l:pattern = '^'.l:pattern.'$'
+	let l:pattern = '^'.a:pattern.'$'
 	while l:completed_jumps < a:jump_count
 		let l:line_number = search(l:pattern, l:flag)
 		if l:line_number == 0
-			echohl WarningMsg | echo "Can't find pattern:".a:pattern | echohl None
-			return
+			return 0
 		endif
 		let l:completed_jumps = l:completed_jumps + 1
 		let l:flag = ''
 	endwhile
+        return 1
 endfunction "}}}
+
+function! s:UnEscape(string, unescape_list)
+    let result = ''
+    for i in range(len(a:string)-1)
+        if a:string[i] == '\' && matchstr(a:unescape_list, a:string[i+1]) != ''
+            let i += 1
+            continue
+        endif
+        let result .= a:string[i]
+    endfor
+    return result.a:string[-1:]
+endfunction
+
+function! s:JumpToHard(pattern, jumps_count)
+    let pattern = s:EscapePattern(a:pattern)
+    if ! s:JumpTo(pattern, a:jumps_count)
+        let pattetn = a:pattern
+        if ! s:JumpTo(pattern, a:jumps_count)
+            let pattern = s:UnEscape(a:pattern, '/')
+            let pattern = s:EscapePattern(pattern)
+            if ! s:JumpTo(pattern, a:jumps_count)
+                call s:ErrorMsg("Can't find pattern:".pattern) 
+            endif
+        endif
+    endif
+endfunction
+
 " Parse sco settings (% option:value)
 function! <SID>ParseSCOSettings() "{{{
 	let l:line_count = line("$")
@@ -851,7 +976,7 @@ function! <SID>EditFile() "{{{
 		    exec 'pclose'
 	    endif
 	    exec 'edit '.file_name
-	    call <SID>JumpTo(pattern, jumps_count)
+	    call <SID>JumpToHard(pattern, jumps_count)
 	    return
 	endif
 
@@ -878,7 +1003,7 @@ function! <SID>EditFile() "{{{
 		    exec 'pclose'
 	    endif
 	    exec 'edit '.l:file_name
-	    call <SID>JumpTo(l:search_pattern, l:repeat_count)
+	    call <SID>JumpToHard(l:search_pattern, l:repeat_count)
 	    return
 	endif
 endfunction "}}}
@@ -958,6 +1083,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, "\:[range]Wrap ['fold comment'] - wrap range of lines with  > > >   < < < ")
 	call add(l:help_lines, '/Global commands:/')
 	call add(l:help_lines, ":SCOClassInfo 'class[struct|enum]name' - add information about class(struct, enum). Tested on c++. (Using tags. Tags must be builded with ctags --fields=fks (default settings))")
+	call add(l:help_lines, ":SCOClassInfo '' - add information about all classes, structures, enums")
 	call add(l:help_lines, ":SCOSymbol 'symbolname' - find C Symbol")
 	call add(l:help_lines, ":SCOGlobal 'functionname' - find Global definition")
 	call add(l:help_lines, ":SCOFile 'filename' - find file")
@@ -1046,8 +1172,6 @@ function! <SID>Prepare_sco_settings() "{{{
 
 	setlocal foldminlines=0
 
-	call <SID>SetSettings()
-
 	let s:last_sco_buffer = bufnr('%')
 
 	command! -nargs=1 SCOSymbol call <SID>CScopeResult(0, <args>)
@@ -1126,6 +1250,7 @@ endfunction "}}}
 " set highlight and commands, put help - called when .sco file created
 function! <SID>Prepare_sco_settings_new_file()
 	call <SID>Prepare_sco_settings()
+        call s:SetSettings()
 	call <SID>AddHelpLines()
 endfunction
 
