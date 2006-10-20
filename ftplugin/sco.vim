@@ -35,6 +35,7 @@ let s:sco_settings = {}
 let s:sco_requests = {0:'C Symbol', 1:'Global Definition of',4:'Functions calling',5:'Text',6:'Grep',7:'File', 8:'Files including file'}
 let s:last_sco_buffer = -1
 let s:preview = 0
+let s:kind_dictionary = {'_c':'class', '_g':'enum','e':'enum', '_s':'struct','f':'method', 'm':'member', 't':'typedef'}
 
 let s:ResultLineNumber = 0
 
@@ -232,13 +233,7 @@ function! s:GetPrototype(element)
         return a:element['name']
     endif
     
-    if kind == 'e'
-        return a:element['name']
-    endif
-
-    if kind == 'm' || kind == 'f'
-        return a:element['name']
-    endif
+    return a:element['name']
 endfunction
 
 function! s:AddResultLine(line)
@@ -255,6 +250,10 @@ function! s:PromptByKind(kind)
         return 'Methods'
     endif
 
+    if a:kind == 't'
+        return 'Typedefs'
+    endif
+
     if a:kind == '_c'
         return 'class'
     endif
@@ -266,6 +265,38 @@ function! s:PromptByKind(kind)
     if a:kind == '_g'
         return 'enum'
     endif
+endfunction
+
+function! s:ShowTagElement(element)
+    let namespace = a:element['namespace']
+    let kind = a:element['kind']
+    let name = a:element['name']
+
+    let kind_prompt = ''
+    if has_key(s:kind_dictionary, kind)
+        let kind_prompt = s:kind_dictionary[kind]
+    endif
+
+    if kind == 'f' && namespace == ''
+        let kind_prompt = 'function'
+    endif
+
+    if a:element['newnamespace'] == 1
+        let name = ''
+    endif
+
+    if namespace != '' && name != ''
+        let namespace .= '::'
+    endif
+
+    let caption = kind_prompt.' '.namespace.name
+    " suppose we have cmd as search pattern
+    let cmd = a:element['cmd']
+    let reg_pattern = '\/\^\(.*\)\$\/'
+    let search_line = substitute(cmd, reg_pattern, '\1', '')
+
+    let line = s:CreateSmartMarkLine(a:element['filename'], search_line, 1, caption)
+    call s:AddResultLine(line)
 endfunction
 
 function! s:ShowElement(element)
@@ -391,6 +422,60 @@ function! s:SplitResultByKind(list, begin)
     return s:SplitResultByField(a:list, a:begin, 'kind')
 endfunction
 
+function! s:GatherTagInfo(tag_regexp)
+endfunction
+
+function! s:AddTagInfoUnderCursor()
+    let word = expand('<cword>')
+    let word = '\<'.word.'\>'
+    call s:AddTagInfo(word)
+endfunction
+
+function! s:AddTagInfo(tag_regexp)
+
+    let pattern = a:tag_regexp
+    
+    let show_pattern = pattern
+    if pattern == ''
+        let pattern = expand('<cword>')
+        let show_pattern = pattern
+        let pattern = '\<'.pattern.'\>'
+    endif
+
+    if ! s:GoToLastScoBuffer()
+        return
+    endif
+    let old_tags = &tags
+
+    let s:ResultLineNumber = line('$')
+    let first_result_line = s:ResultLineNumber
+
+    call s:SetSettings()
+
+    let &tags = s:sco_settings['tags_db']
+
+    let result = taglist(pattern)
+
+    let result = sort(result, 's:SortNamesInOrderFunction')
+
+    for el in result
+        let el = s:ExpandTagElement(el) 
+        call s:ShowTagElement(el)
+    endfor
+
+    if empty(result)
+        call s:ErrorMsg("Couldn't find \"".show_pattern."\" tag info")
+    elseif len(result)>1
+        call append(first_result_line, ">>> Tag \"".show_pattern."\"")
+        call append(s:ResultLineNumber+1, "<<<")
+    endif
+
+    exec first_result_line+1
+
+    let &tags = old_tags
+endfunction
+
+" add information about class or all classes as tree
 function! s:AddClassInfo(class_name)
     if ! s:GoToLastScoBuffer()
         return
@@ -405,7 +490,7 @@ function! s:AddClassInfo(class_name)
 
     if a:class_name != ''
         let result = s:GatherClassInfo(a:class_name)
-    else
+    els
         let result = s:GatherAllClasseInfo()
     endif
 
@@ -427,6 +512,7 @@ function! s:AddClassInfo(class_name)
         call append(first_result_line, '>>> Classes information')
         call append(s:ResultLineNumber, '<<<')
     endif
+    call s:CommentMsg('done')
 
     let &tags = old_tags
 endfunction
@@ -1069,6 +1155,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, 'c<Space>f - Find File')
 	call add(l:help_lines, 'c<Space>i - Find Files including this file')
 	call add(l:help_lines, 'c<Space>w - Find Functions calling this function')
+	call add(l:help_lines, 'c<Space>t - Find tag')
 	call add(l:help_lines, 'c<Space>b - Open last sco buffer')
 	call add(l:help_lines, 'c<Space>m - Mark current line')
 	call add(l:help_lines, 'c<Space>n - Mark smart current line')
@@ -1084,6 +1171,8 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, '/Global commands:/')
 	call add(l:help_lines, ":SCOClassInfo 'class[struct|enum]name' - add information about class(struct, enum). Tested on c++. (Using tags. Tags must be builded with ctags --fields=fks (default settings))")
 	call add(l:help_lines, ":SCOClassInfo '' - add information about all classes, structures, enums")
+	call add(l:help_lines, ":SCOTag 'pattern' - add information about tags")
+	call add(l:help_lines, ":SCOTag '' - add information about tag under cursor")
 	call add(l:help_lines, ":SCOSymbol 'symbolname' - find C Symbol")
 	call add(l:help_lines, ":SCOGlobal 'functionname' - find Global definition")
 	call add(l:help_lines, ":SCOFile 'filename' - find file")
@@ -1182,6 +1271,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! -nargs=1 SCOFile call <SID>CScopeResult(7, <args>)
 	command! -nargs=1 SCOInclude call <SID>CScopeResult(8, <args>)
         command! -nargs=1 SCOClassInfo call s:AddClassInfo(<args>)
+        command! -nargs=1 SCOTag call s:AddTagInfo(<args>)
 	command! SCOBuffer call <SID>GoToLastScoBuffer()
 	command! SCOMark call <SID>AddMark()
 	command! SCOMarkSmart call <SID>AddSmartMark()
@@ -1203,7 +1293,7 @@ function! <SID>Prepare_sco_settings() "{{{
 
 	nnoremap c<Space>g :SCOGlobal expand('<cword>')<CR>
 	nnoremap c<Space>c :SCOSymbol expand('<cword>')<CR>
-	nnoremap c<Space>t :SCOText expand('<cword>')<CR>
+	nnoremap c<Space>t :SCOTag ''<CR>
 	nnoremap c<Space>w :SCOWhoCall expand('<cword>')<CR>
 	nnoremap c<Space>i :SCOInclude expand('<cfile>')<CR>
 	nnoremap c<Space>f :SCOFile expand('<cfile>')<CR>
@@ -1257,6 +1347,8 @@ endfunction
 augroup SourceCodeObedience
 au! BufRead *.sco call <SID>Prepare_sco_settings()
 au! BufNewFile *.sco call <SID>Prepare_sco_settings_new_file()
+"au! WinEnter *.sco call <SID>EnterScoBuffer()
+"au! WinLeave *.sco call <SID>LeaveScoBuffer()
 au! BufEnter *.sco call <SID>EnterScoBuffer()
 au! BufLeave *.sco call <SID>LeaveScoBuffer()
 au! CursorMoved *.sco nested call <SID>Cursor_move_handler()
