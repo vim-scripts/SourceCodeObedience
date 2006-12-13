@@ -703,6 +703,56 @@ function! <SID>SetSettings() "{{{
 	call <SID>DefaultSetting('cscope_db', g:sco_default_db)
 endfunction "}}}
 
+" select next sco line to edit
+function! s:SCODown()
+    if ! s:GoToLastScoBuffer()
+        return
+    endif
+
+    let line_number = line('.') + 1
+    let last_line_number = line('$')
+    let done = 0
+
+    while line_number <= last_line_number
+        if s:EditFileInLine(line_number)
+            let done = 1
+            break
+        endif
+        let line_number += 1
+    endwhile
+
+    if ! done
+        call s:ErrorMsg('Last line reached')
+    endif
+endfunction
+
+" select prev sco line to edit
+function! s:SCOUp()
+    if ! s:GoToLastScoBuffer()
+        return
+    endif
+
+    let line_number = line('.') - 1
+    let done = 0
+
+    while line_number >= 0
+        if s:EditFileInLine(line_number)
+            let done = 1
+            break
+        endif
+        let line_number -= 1
+    endwhile
+
+    if ! done
+        call s:ErrorMsg('First line reached')
+    endif
+endfunction
+
+function! s:EditFileInLine(line_number)
+    exec ':'.a:line_number
+    return s:EditFile()
+endfunctio
+
 " open last sco buffer
 function! <SID>GoToLastScoBuffer() "{{{
 	if bufnr('%') == s:last_sco_buffer
@@ -1051,7 +1101,6 @@ function! <SID>EditFile() "{{{
 	    call <SID>SaveBuffer()
 	    let file_name = substitute(l:current_line, s:smart_mark_pattern, '\1', '')
 	    let jumps_count = substitute(l:current_line, s:smart_mark_pattern, '\2', '')
-	    echo "jums_count:".jumps_count."!"
 	    if jumps_count == ''
 		let jumps_count = 1
 	    endif
@@ -1063,7 +1112,7 @@ function! <SID>EditFile() "{{{
 	    endif
 	    exec 'edit '.file_name
 	    call <SID>JumpToHard(pattern, jumps_count)
-	    return
+	    return 1
 	endif
 
 	let l:pattern = '^#\s\+\(\S\+\)\s\+\(\S\+\)\s\+\(\d\+\)\s\+\(.*\)$'
@@ -1076,7 +1125,7 @@ function! <SID>EditFile() "{{{
 		    exec 'pclose'
 	    endif
 	    exec 'edit  +:'.l:line_number.' '.l:file_name
-	    return
+	    return 1
 	endif
 
 	let l:pattern = '^@\s\+\(\S\+\)\s\+\(\d\+\)\s\(.*\)$'
@@ -1090,8 +1139,10 @@ function! <SID>EditFile() "{{{
 	    endif
 	    exec 'edit '.l:file_name
 	    call <SID>JumpToHard(l:search_pattern, l:repeat_count)
-	    return
+	    return 1
 	endif
+
+        return 0
 endfunction "}}}
 
 " open fold or edit file
@@ -1183,6 +1234,8 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ":SCOBuffer - go to last sco buffer")
 	call add(l:help_lines, ":SCOMark - mark current line")
 	call add(l:help_lines, ":SCOMarkSmart - mark smart current line")
+	call add(l:help_lines, ":SCOUp - go to the previous mark ( or resultant line ) from last sco")
+	call add(l:help_lines, ":SCODown - go to the next mark ( or resultant line ) from last sco")
 	call add(l:help_lines, "/Format of mark/")
 	call add(l:help_lines, "# filename functionname linenumber body")
 	call add(l:help_lines, "/Format of smart mark/")
@@ -1275,6 +1328,8 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! SCOBuffer call <SID>GoToLastScoBuffer()
 	command! SCOMark call <SID>AddMark()
 	command! SCOMarkSmart call <SID>AddSmartMark()
+        command! SCODown call s:SCODown()
+        command! SCOUp call s:SCOUp()
 	command! -buffer Preview call <SID>TogglePreview()
 	command! -buffer AllignFold call <SID>AllignFoldResult()
 	command! -buffer -range AllignRange call <SID>AllignAllInRange(<line1>, <line2>)
