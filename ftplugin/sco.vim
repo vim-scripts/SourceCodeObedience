@@ -523,7 +523,7 @@ function! <SID>SaveResult() "{{{
 endfunction "}}}
 " escape search pattern
 function! <SID>EscapePattern(line) "{{{
-	return escape(a:line,'.$^|\*[]~')
+	return escape(a:line,'.$^\*[]~')
 endfunction "}}}
 
 function! <SID>SaveBuffer()
