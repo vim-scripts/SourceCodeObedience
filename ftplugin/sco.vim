@@ -1092,6 +1092,65 @@ function! <SID>CreateCommentCaption(text) "{{{
     return ' ```'.a:text.'>>><<<'
 endfunction "}}}
 
+" open marks and resul lines in new tab with splitted windows
+function! s:MultiOpen(lines_numbers)
+    exec "tabnew"
+
+    let vertical_split = 1
+    let win_number = winnr()
+    let line_processed = 1
+    for item in a:lines_numbers
+        if line_processed != len(a:lines_numbers)
+            let line_processed += 1
+            let win_number += 2
+            exec "wincmd w"
+            exec "wincmd w"
+
+            if &buftype == "nofile"
+                exec "wincmd w"
+                let win_number += 1
+            endif
+
+            if win_number > winnr('$')
+                let win_number = winnr()
+                let vertical_split = ! vertical_split
+            endif
+
+            if vertical_split
+                exec "vnew"
+            else
+                exec "new"
+            endif
+
+        endif
+    endfor
+
+    let item_number = 1
+
+    for item in a:lines_numbers
+
+        exec item_number." wincmd w"
+        if ! s:GoToLastScoBuffer()
+            return
+        endif
+        if ( s:EditFileInLine(item) )
+        endif
+
+        let item_number += 1
+    endfor
+
+endfunction
+
+
+function! s:MultiOpenRange(top, bottom)
+    let lines_numbers = []
+    for i in range(a:top, a:bottom)
+        call add(lines_numbers, i)
+    endfor
+
+    call s:MultiOpen(lines_numbers)
+endfunction
+
 " select file to edit
 function! <SID>EditFile() "{{{
 	let l:current_line = getline('.')
@@ -1200,6 +1259,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, '[normal] c<Space>a - Allign folded result')
 	call add(l:help_lines, '[visual] w - Wrap selected lines with > > >    < < <')
 	call add(l:help_lines, '[visual] a - Allign selceted lines')
+	call add(l:help_lines, '[visual] o - Open selected lines')
 	call add(l:help_lines, '/Global hot keys:/')
 	call add(l:help_lines, 'c<Space>g - Find Global Definition of symbol under cursor')
 	call add(l:help_lines, 'c<Space>c - Find C Symbol')
@@ -1335,6 +1395,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! -buffer -range AllignRange call <SID>AllignAllInRange(<line1>, <line2>)
 	command! -buffer Caption call <SID>SetCaption('')
 	command! -buffer -nargs=* -range Wrap call <SID>FoldWrap(<line1>, <line2>, <args>)
+	command! -buffer -nargs=* -range MO call s:MultiOpenRange(<line1>, <line2>)
 	command! -buffer -nargs=* Caption call <SID>SetCaption(<args>)
 	command! -buffer -nargs=1 Delete call <SID>FilterResult(<args>, '$^')
 	command! -buffer -nargs=1 Leave call <SID>FilterResult('.*', <args>)
@@ -1345,6 +1406,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	nnoremap <buffer> c<Space>a :Allign<CR>
 	vnoremap <buffer> w :Wrap<CR>
 	vnoremap <buffer> a :AllignRange<CR>
+	vnoremap <buffer> o :MO<CR>
 
 	nnoremap c<Space>g :SCOGlobal expand('<cword>')<CR>
 	nnoremap c<Space>c :SCOSymbol expand('<cword>')<CR>
