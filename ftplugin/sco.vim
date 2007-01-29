@@ -748,10 +748,83 @@ function! s:SCOUp()
     endif
 endfunction
 
+function! s:SCONextBuffer( buffer_number )
+    let current_buffer = a:buffer_number
+    let buffers_count = bufnr('$')
+
+    let i = current_buffer
+    if current_buffer == s:last_sco_buffer
+        let i = current_buffer + 1
+    endif
+
+    if i > buffers_count
+        let i = 1
+    endif
+
+    while i <= buffers_count
+        let buffer_name = bufname(i)
+        if buffer_name =~ '\.sco$'
+            return i
+        endif
+
+        let i += 1
+    endwhile
+
+    return 0
+endfunction
+
+" return previous sco buffer from list
+function! s:SCOPreviousBuffer( buffer_number, return_last )
+    let current_buffer = a:buffer_number
+
+    let buffers_count = bufnr('$')
+    
+    let i = current_buffer
+    if current_buffer == s:last_sco_buffer
+        let i = current_buffer - 1
+    else
+        if a:return_last
+            return s:last_sco_buffer
+        endif
+    endif
+
+    if i <= 1
+        let i = buffers_count
+    endif
+
+    while i >= 1
+        let buffer_name = bufname(i)
+        if buffer_name =~ '\.sco$'
+            return i
+        endif
+        let i -= 1
+    endwhile
+
+    return 0
+endfunction
+
+function! s:SCOSelectPreviousBuffer()
+    let buffer_number = s:SCOPreviousBuffer( bufnr(''), 1 )
+    if buffer_number == 0
+        let buffer_number = s:SCOPreviousBuffer( bufnr('$'), 0 )
+    endif
+
+    exec 'buffer '.buffer_number
+endfunction
+
+function! s:SCOSelectNextBuffer()
+    let buffer_number = s:SCONextBuffer( bufnr('') )
+    if buffer_number == 0
+        let buffer_number = s:SCONextBuffer( 1 )
+    endif
+
+    exec 'buffer '.buffer_number
+endfunction
+
 function! s:EditFileInLine(line_number)
     exec ':'.a:line_number
     return s:EditFile()
-endfunctio
+endfunction
 
 " open last sco buffer
 function! <SID>GoToLastScoBuffer() "{{{
@@ -1296,6 +1369,10 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ":SCOMarkSmart - mark smart current line")
 	call add(l:help_lines, ":SCOUp - go to the previous mark ( or resultant line ) from last sco")
 	call add(l:help_lines, ":SCODown - go to the next mark ( or resultant line ) from last sco")
+	call add(l:help_lines, ":SCOPrevious - open previous sco buffer")
+	call add(l:help_lines, ":SCONext - open next sco buffer")
+	call add(l:help_lines, ":SCOPrevious nad :SCONext useful when you have for example following sco files:")
+	call add(l:help_lines, "interfaces.sco; todo.sco; bugmarks.sco; breakpoints.sco; mychanges.sco")
 	call add(l:help_lines, "/Format of mark/")
 	call add(l:help_lines, "# filename functionname linenumber body")
 	call add(l:help_lines, "/Format of smart mark/")
@@ -1390,6 +1467,8 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! SCOMarkSmart call <SID>AddSmartMark()
         command! SCODown call s:SCODown()
         command! SCOUp call s:SCOUp()
+        command! SCOPrevious call s:SCOSelectPreviousBuffer()
+        command! SCONext call s:SCOSelectNextBuffer()
 	command! -buffer Preview call <SID>TogglePreview()
 	command! -buffer AllignFold call <SID>AllignFoldResult()
 	command! -buffer -range AllignRange call <SID>AllignAllInRange(<line1>, <line2>)
