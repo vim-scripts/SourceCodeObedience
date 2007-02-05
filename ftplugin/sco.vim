@@ -1516,11 +1516,15 @@ function! <SID>Prepare_sco_settings() "{{{
 	syn match mark3 /\s\S\+/ nextgroup=mark4 contained skipwhite
 	syn region mark4 start='\s' end='$' contained 
 
-        syn match tags_header /^tags:/ nextgroup=tags_list
+        syn match tags_header /^\s*tags:/ nextgroup=tags_list
+        syn match tags_header_header /^header:/ nextgroup=tags_header_text
+        syn match tags_header_text /.*/ contained
         syn match tags_list /\s*\w\+\s*/ nextgroup=tags_separator contained
         syn match tags_separator /,/ nextgroup=tags_list contained
 
-        hi link tags_header     TODO
+        hi link tags_header         TODO
+        hi link tags_header_header  TODO
+        hi link tags_header_text  Comment
         hi link tags_list       Special
         hi link tags_separator  Comment
 
