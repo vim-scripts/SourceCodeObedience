@@ -809,6 +809,10 @@ function! s:SCOSelectPreviousBuffer()
         let buffer_number = s:SCOPreviousBuffer( bufnr('$'), 0 )
     endif
 
+    if buffer_number == 0
+        let buffer_number = s:last_sco_buffer
+    endif
+
     exec 'buffer '.buffer_number
 endfunction
 
@@ -816,6 +820,10 @@ function! s:SCOSelectNextBuffer()
     let buffer_number = s:SCONextBuffer( bufnr('') )
     if buffer_number == 0
         let buffer_number = s:SCONextBuffer( 1 )
+    endif
+
+    if buffer_number == 0
+        let buffer_number = s:last_sco_buffer
     endif
 
     exec 'buffer '.buffer_number
