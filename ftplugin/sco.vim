@@ -10,7 +10,7 @@
 " Please email me problems
 
 if exists('g:sco_plugin_loaded')
-    finish
+   finish
 endif
 
 let g:sco_plugin_loaded = 1
@@ -594,6 +594,28 @@ function! <SID>SetCaption(...) "{{{
 
     call setline(line('.'), line)
 endfunction "}}}
+
+function! s:SetFileNameCaption()
+    let line = getline('.')
+
+    if line !~ s:smart_mark_pattern_without_comment && line !~ s:smart_mark_pattern_comment
+	call <SID>ErrorMsg('Captions only on smart marks')
+	return
+    endif
+
+    let caption = "NoFileName?"
+    if line =~ s:smart_mark_pattern
+        let caption = <SID>EscapePattern(substitute(line, s:smart_mark_pattern, '\1', ''))
+    endif
+
+    if line =~ s:smart_mark_pattern_comment
+	let line = substitute(line, s:smart_mark_pattern_comment, <SID>CreateCommentCaption(caption),'')
+    else
+	let line = line.<SID>CreateCommentCaption(caption)
+    endif
+
+    call setline(line('.'), line)
+endfunction
 
 " return how many times search pattern match (from the beginig of file)
 function! <SID>Search(line_number) "{{{
@@ -1359,6 +1381,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ':AllignFold - allign lines inside  > > >   < < <')
 	call add(l:help_lines, ':[range]AllignRange - allign lines in range')
 	call add(l:help_lines, ":Caption ['new_caption'] - change or set caption of smart marks")
+	call add(l:help_lines, ":FileNameCaption - change caption of smart marks to file name where marks are point")
 	call add(l:help_lines, "\:[range]Wrap ['fold comment'] - wrap range of lines with  > > >   < < < ")
 	call add(l:help_lines, '/Global commands:/')
 	call add(l:help_lines, ":SCOClassInfo 'class[struct|enum]name' - add information about class(struct, enum). Tested on c++. (Using tags. Tags must be builded with ctags --fields=fks (default settings))")
@@ -1481,6 +1504,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! -buffer AllignFold call <SID>AllignFoldResult()
 	command! -buffer -range AllignRange call <SID>AllignAllInRange(<line1>, <line2>)
 	command! -buffer Caption call <SID>SetCaption('')
+	command! -buffer FileNameCaption call <SID>SetFileNameCaption()
 	command! -buffer -nargs=* -range Wrap call <SID>FoldWrap(<line1>, <line2>, <args>)
 	command! -buffer -nargs=* -range MO call s:MultiOpenRange(<line1>, <line2>)
 	command! -buffer -nargs=* Caption call <SID>SetCaption(<args>)
