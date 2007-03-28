@@ -1190,6 +1190,31 @@ function! <SID>AddSmartMark() "{{{
 	call <SID>AllignResultNewMarks(line_number+1, line('$'))
 endfunction "}}}
 
+function! <SID>IsScoBuffer()
+    if (bufname("%") =~ '\.sco$')
+        return 1
+    endif
+
+    return 0
+endfunction
+
+function! <SID>RemarkWithSmartMark()
+        if <SID>IsScoBuffer()
+            return
+        endif
+
+	let line = getline('.')
+	let file_name = expand('%:p')
+	let jumps_count = <SID>Search(line('.'))
+
+	if ! <SID>GoToLastScoBuffer()
+		return
+	endif
+
+        let smart_mark_line = s:CreateSmartMarkLine(file_name, line, jumps_count, line)
+	call setline(line('.'), smart_mark_line)
+endfunction
+
 " make small addition to smart mark as comment
 function! <SID>CreateCommentCaption(text) "{{{
     return ' ```'.a:text.'>>><<<'
@@ -1373,6 +1398,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, 'c<Space>b - Open last sco buffer')
 	call add(l:help_lines, 'c<Space>m - Mark current line')
 	call add(l:help_lines, 'c<Space>n - Mark smart current line')
+	call add(l:help_lines, 'c<Space>r - ReMark: Change current line in sco file to smart mark')
 	call add(l:help_lines, '/Commands local to this buffer:/')
 	call add(l:help_lines, ":Delete 'pattern' - delete all rows which match 'pattern' inside folded result")
 	call add(l:help_lines, ":Leave 'pattern' - leave only rows which match 'pattern' inside folded result")
@@ -1398,6 +1424,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ":SCOBuffer - go to last sco buffer")
 	call add(l:help_lines, ":SCOMark - mark current line")
 	call add(l:help_lines, ":SCOMarkSmart - mark smart current line")
+	call add(l:help_lines, ":SCOReMark - ReMark: Change current line in sco file to smart mark")
 	call add(l:help_lines, ":SCOUp - go to the previous mark ( or resultant line ) from last sco")
 	call add(l:help_lines, ":SCODown - go to the next mark ( or resultant line ) from last sco")
 	call add(l:help_lines, ":SCOPrevious - open previous sco buffer")
@@ -1496,6 +1523,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! SCOBuffer call <SID>GoToLastScoBuffer()
 	command! SCOMark call <SID>AddMark()
 	command! SCOMarkSmart call <SID>AddSmartMark()
+	command! SCOReMark call <SID>RemarkWithSmartMark()
         command! SCODown call s:SCODown()
         command! SCOUp call s:SCOUp()
         command! SCOPrevious call s:SCOSelectPreviousBuffer()
@@ -1528,6 +1556,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	nnoremap c<Space>b :SCOBuffer<CR>
 	nnoremap c<Space>m :SCOMark<CR>
 	nnoremap c<Space>n :SCOMarkSmart<CR>
+	nnoremap c<Space>r :SCOReMark<CR>
 
 	syn match sco_header /^% cscope_db: / nextgroup=sco_header_param
 	syn match sco_header /^% cscope_exe: / nextgroup=sco_header_param
