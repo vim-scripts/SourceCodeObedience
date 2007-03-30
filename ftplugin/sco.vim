@@ -1269,6 +1269,49 @@ function! s:MultiOpen(lines_numbers)
 
 endfunction
 
+function! <SID>TransferCurrentToSmartMark()
+    return <SID>TransferToSmartMark( line('.') )
+endfunction
+
+function! <SID>TransferToSmartMarkImpl( line_number, prefix )
+    exec a:line_number
+
+    let line = getline( a:line_number )
+    let pattern = '^'.a:prefix.'\(\S\+\)\s*[:+ ]\s*\(\d\+\)\s*$'
+
+    if line !~ pattern
+        return 0
+    endif
+
+    let file_name = substitute(line, pattern, '\1', '')
+    let line_number = substitute(line, pattern, '\2', '')
+
+    exec "edit ".file_name
+    exec line_number
+
+    call <SID>RemarkWithSmartMark()
+
+    return 1
+endfunction
+
+function! <SID>TransferToSmartMark( line_number )
+    call <SID>SaveBuffer()
+    
+    if ! <SID>TransferToSmartMarkImpl( a:line_number, '' )
+        if ! <SID>TransferToSmartMarkImpl( a:line_number, '.*at\s\+' )
+            call <SID>ErrorMsg("invalid pattern: should be [at ]file_name[+: ]line_number")
+            return 0
+        endif
+    endif
+
+    return 1
+endfunction
+
+function! <SID>TransferRegionToSmartMarks( top, bottom )
+    for i in range(a:top, a:bottom)
+        call <SID>TransferToSmartMark( i )
+    endfor
+endfunction
 
 function! s:MultiOpenRange(top, bottom)
     let lines_numbers = []
@@ -1409,6 +1452,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ":Caption ['new_caption'] - change or set caption of smart marks")
 	call add(l:help_lines, ":FileNameCaption - change caption of smart marks to file name where marks are point")
 	call add(l:help_lines, "\:[range]Wrap ['fold comment'] - wrap range of lines with  > > >   < < < ")
+	call add(l:help_lines, "\:[range]TransferToMarks - convert lines '[at ]file_name[ :+]line_number' to smart mark. Useful for work with backtrace for example")
 	call add(l:help_lines, '/Global commands:/')
 	call add(l:help_lines, ":SCOClassInfo 'class[struct|enum]name' - add information about class(struct, enum). Tested on c++. (Using tags. Tags must be builded with ctags --fields=fks (default settings))")
 	call add(l:help_lines, ":SCOClassInfo '' - add information about all classes, structures, enums")
@@ -1539,6 +1583,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! -buffer -nargs=1 Delete call <SID>FilterResult(<args>, '$^')
 	command! -buffer -nargs=1 Leave call <SID>FilterResult('.*', <args>)
 	command! -buffer -nargs=1 -nargs=1 -complete=tag Filter call <SID>FilterResult(<args>)
+	command! -buffer -nargs=* -range TransferToMarks call s:TransferRegionToSmartMarks(<line1>, <line2>)
 
 	nnoremap <buffer> <CR> :call <SID>FoldEnter()<CR>
 	nnoremap <buffer> c<Space>p :Preview<CR>
