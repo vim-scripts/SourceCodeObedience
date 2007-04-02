@@ -31,9 +31,12 @@ let s:smart_mark_pattern_comment = '\s\+```\(.*[^>]\)>>.*$'
 let s:smart_mark_pattern_without_comment = '@\s\+\(\S\+\)\s\+\(\d*\)\s\(.*\)'
 let s:smart_mark_pattern = s:smart_mark_pattern_without_comment.s:smart_mark_pattern_comment
 
+let s:line_to_append = -1
+
 let s:sco_settings = {}
 let s:sco_requests = {0:'C Symbol', 1:'Global Definition of',4:'Functions calling',5:'Text',6:'Grep',7:'File', 8:'Files including file'}
 let s:last_sco_buffer = -1
+let s:buffer_to_append = -1
 let s:preview = 0
 let s:kind_dictionary = {'_c':'class', '_g':'enum','e':'enum', '_s':'struct','f':'method', 'm':'member', 't':'typedef'}
 
@@ -810,7 +813,7 @@ function! s:SCOPreviousBuffer( buffer_number, return_last )
         endif
     endif
 
-    if i <= 1
+    if i < 1
         let i = buffers_count
     endif
 
@@ -856,26 +859,33 @@ function! s:EditFileInLine(line_number)
     return s:EditFile()
 endfunction
 
-" open last sco buffer
-function! <SID>GoToLastScoBuffer() "{{{
-	if bufnr('%') == s:last_sco_buffer
+function! s:GoToScoBuffer( bufnumber )
+	if bufnr('%') == a:bufnumber
 	    return 1
 	endif
 
-	let l:last_sco_buffer_name = bufname(s:last_sco_buffer)
+	let l:last_sco_buffer_name = bufname( a:bufnumber )
 
 	if l:last_sco_buffer_name !~ "sco$"
-		call <SID>ErrorMsg('Last sco ['.s:last_sco_buffer.'] buffer not present')
+		call <SID>ErrorMsg('sco ['.a:bufnumber.'] buffer not present')
 		return 0
 	endif
 
-	exec 'buffer '.s:last_sco_buffer
+	exec 'buffer '.a:bufnumber
 
-	if bufnr('%') != s:last_sco_buffer
+	if bufnr('%') != a:bufnumber
 	    call <SID>ErrorMsg("Can't open last sco buffer")
 	    return 0
 	endif
 	return 1
+endfunction
+
+function! <SID>GoToBufferToAppend()
+    return s:GoToScoBuffer( s:buffer_to_append )
+endfunction
+" open last sco buffer
+function! <SID>GoToLastScoBuffer() "{{{
+    return s:GoToScoBuffer( s:last_sco_buffer )
 endfunction "}}}
 
 " put results from cscope
@@ -1140,13 +1150,15 @@ function! <SID>AddMark() "{{{
 	let l:line = getline('.')
 	let l:file_name = expand('%:p')
 
-	if ! <SID>GoToLastScoBuffer()
+	if ! <SID>GoToBufferToAppend()
 		return
 	endif
 
 
 	let l:mark_line = '# '.l:file_name.' <mark> '.l:line_number.' '.l:line
-	call append(line('$'), l:mark_line)
+        let line_to_append = s:LineToAppend(1)
+	call append( line_to_append, l:mark_line)
+        exec line_to_append + 1
 
 	let l:line_number = line('$')
 	while l:line_number >= 0
@@ -1165,29 +1177,44 @@ function! s:CreateSmartMarkLine(file_name, search_pattern, jumps_count, caption)
         return result
 endfunction
 
+function! s:LineToAppend( increase )
+    if s:line_to_append < 0 
+        return line('$')
+    endif
+    
+    let result = s:line_to_append
+    if a:increase && s:line_to_append >= 0
+        let s:line_to_append += 1
+    endif
+
+    return result
+endfunction
+
+function! <SID>SetCurrentLineAsLineToAppend()
+    let line_number = line('.')
+    let s:line_to_append = line_number-1
+    let s:buffer_to_append = bufnr('')
+
+    if line_number == line('$')
+        let s:line_to_append = -1
+    endif
+endfunction
+
 " add smart mark
 function! <SID>AddSmartMark() "{{{
 	let line = getline('.')
 	let file_name = expand('%:p')
 	let jumps_count = <SID>Search(line('.'))
 
-	if ! <SID>GoToLastScoBuffer()
+	if ! <SID>GoToBufferToAppend()
 		return
 	endif
 
         let smart_mark_line = s:CreateSmartMarkLine(file_name, line, jumps_count, line)
-	call append(line('$'), smart_mark_line)
 
-	let line_number = line('$')
-	while line_number >= 0
-		let line = getline(l:line_number)
-		if line !~ '^@'
-			break
-		endif
-		let line_number = l:line_number - 1
-	endwhile
-
-	call <SID>AllignResultNewMarks(line_number+1, line('$'))
+        let line_to_append = s:LineToAppend(1)
+        call append( line_to_append, smart_mark_line)
+        exec line_to_append + 1
 endfunction "}}}
 
 function! <SID>IsScoBuffer()
@@ -1425,6 +1452,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, '/ press <Enter> to open help /')
 	call add(l:help_lines, '>>> sco help')
 	call add(l:help_lines, '/Hot keys local to this buffer:/')
+	call add(l:help_lines, 'you can change them in sco_keys.vim file')
 	call add(l:help_lines, '[normal] <CR> - select file to edit from result or open fold')
 	call add(l:help_lines, '[normal] c<Space>p - Toggle preview mode')
 	call add(l:help_lines, '[normal] c<Space>a - Allign folded result')
@@ -1432,6 +1460,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, '[visual] a - Allign selceted lines')
 	call add(l:help_lines, '[visual] o - Open selected lines')
 	call add(l:help_lines, '/Global hot keys:/')
+	call add(l:help_lines, 'you can change them in sco_keys.vim file')
 	call add(l:help_lines, 'c<Space>g - Find Global Definition of symbol under cursor')
 	call add(l:help_lines, 'c<Space>c - Find C Symbol')
 	call add(l:help_lines, 'c<Space>f - Find File')
@@ -1449,8 +1478,10 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ':Preview - toggle preview mode')
 	call add(l:help_lines, ':AllignFold - allign lines inside  > > >   < < <')
 	call add(l:help_lines, ':[range]AllignRange - allign lines in range')
+	call add(l:help_lines, ':[range]MultiOpen - open marks in ranger in splitted windows')
 	call add(l:help_lines, ":Caption ['new_caption'] - change or set caption of smart marks")
 	call add(l:help_lines, ":FileNameCaption - change caption of smart marks to file name where marks are point")
+	call add(l:help_lines, ":AppendPlace - change place where new marks will be appended")
 	call add(l:help_lines, "\:[range]Wrap ['fold comment'] - wrap range of lines with  > > >   < < < ")
 	call add(l:help_lines, "\:[range]TransferToMarks - convert lines '[at ]file_name[ :+]line_number' to smart mark. Useful for work with backtrace for example")
 	call add(l:help_lines, '/Global commands:/')
@@ -1572,36 +1603,30 @@ function! <SID>Prepare_sco_settings() "{{{
         command! SCOUp call s:SCOUp()
         command! SCOPrevious call s:SCOSelectPreviousBuffer()
         command! SCONext call s:SCOSelectNextBuffer()
+        command! -buffer Enter call <SID>FoldEnter()
 	command! -buffer Preview call <SID>TogglePreview()
 	command! -buffer AllignFold call <SID>AllignFoldResult()
 	command! -buffer -range AllignRange call <SID>AllignAllInRange(<line1>, <line2>)
 	command! -buffer Caption call <SID>SetCaption('')
 	command! -buffer FileNameCaption call <SID>SetFileNameCaption()
+	command! -buffer AppendPlace call <SID>SetCurrentLineAsLineToAppend()
 	command! -buffer -nargs=* -range Wrap call <SID>FoldWrap(<line1>, <line2>, <args>)
-	command! -buffer -nargs=* -range MO call s:MultiOpenRange(<line1>, <line2>)
+	command! -buffer -nargs=* -range MultiOpen call s:MultiOpenRange(<line1>, <line2>)
 	command! -buffer -nargs=* Caption call <SID>SetCaption(<args>)
 	command! -buffer -nargs=1 Delete call <SID>FilterResult(<args>, '$^')
 	command! -buffer -nargs=1 Leave call <SID>FilterResult('.*', <args>)
 	command! -buffer -nargs=1 -nargs=1 -complete=tag Filter call <SID>FilterResult(<args>)
 	command! -buffer -nargs=* -range TransferToMarks call s:TransferRegionToSmartMarks(<line1>, <line2>)
 
-	nnoremap <buffer> <CR> :call <SID>FoldEnter()<CR>
-	nnoremap <buffer> c<Space>p :Preview<CR>
-	nnoremap <buffer> c<Space>a :Allign<CR>
-	vnoremap <buffer> w :Wrap<CR>
-	vnoremap <buffer> a :AllignRange<CR>
-	vnoremap <buffer> o :MO<CR>
+        let g:sco_include_key_mappings = 1
 
-	nnoremap c<Space>g :SCOGlobal expand('<cword>')<CR>
-	nnoremap c<Space>c :SCOSymbol expand('<cword>')<CR>
-	nnoremap c<Space>t :SCOTag ''<CR>
-	nnoremap c<Space>w :SCOWhoCall expand('<cword>')<CR>
-	nnoremap c<Space>i :SCOInclude expand('<cfile>')<CR>
-	nnoremap c<Space>f :SCOFile expand('<cfile>')<CR>
-	nnoremap c<Space>b :SCOBuffer<CR>
-	nnoremap c<Space>m :SCOMark<CR>
-	nnoremap c<Space>n :SCOMarkSmart<CR>
-	nnoremap c<Space>r :SCOReMark<CR>
+        try
+            runtime plugin/sco_keys.vim
+        catch /.*/
+            call <SID>ErrorMsg("can't find sco_keys.vim")
+        finally
+        endtry
+
 
 	syn match sco_header /^% cscope_db: / nextgroup=sco_header_param
 	syn match sco_header /^% cscope_exe: / nextgroup=sco_header_param
