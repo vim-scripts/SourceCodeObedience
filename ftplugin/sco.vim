@@ -1236,8 +1236,8 @@ function! <SID>SetCurrentLineAsLineToAppend()
 endfunction
 
 " add smart mark
-function! <SID>AddSmartMark() "{{{
-	let line = getline('.')
+function! <SID>AddSmartMark( line_number ) "{{{
+	let line = getline( a:line_number )
 	let file_name = expand('%:p')
 	let jumps_count = <SID>Search(line('.'))
 
@@ -1639,7 +1639,7 @@ function! <SID>Prepare_sco_settings() "{{{
         command! SCOSaveSearch call s:SavePreviousSearchAsMarks()
 	command! SCOBuffer call <SID>GoToLastScoBuffer()
 	command! SCOMark call <SID>AddMark()
-	command! SCOMarkSmart call <SID>AddSmartMark()
+	command! -range SCOMarkSmart call <SID>AddSmartMark(<line1>)
 	command! SCOReMark call <SID>RemarkWithSmartMark()
         command! SCODown call s:SCODown()
         command! SCOUp call s:SCOUp()
