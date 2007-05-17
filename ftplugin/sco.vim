@@ -854,6 +854,36 @@ function! s:SCOSelectNextBuffer()
     exec 'buffer '.buffer_number
 endfunction
 
+function! s:SavePreviousSearchAsMarks()
+    let last_template = @/
+    let file_name = expand("%:p")
+
+    if ! s:GoToBufferToAppend()
+        return
+    endif
+
+    let line_to_append = s:LineToAppend(1)
+    let last_template_for_print = substitute( last_template, '[<\>]', "", "g" )
+    let header_line = "header: searches for '".last_template_for_print."' in file: '".file_name."'"
+    let tag_line = "  tags: search, ".last_template_for_print
+
+    exec "edit ".file_name
+
+
+    exec "g/".last_template."/SCOMarkSmart"
+    call s:GoToBufferToAppend()
+
+    call append( line_to_append, '>>>' )
+    call append( line_to_append, tag_line)
+    call append( line_to_append, header_line)
+
+    let line_to_append_after = s:LineToAppend(1)
+    call append( line_to_append_after, '<<<' )
+
+    exec line_to_append + 3
+    call s:FoldEnter()
+endfunction
+
 function! s:EditFileInLine(line_number)
     exec ':'.a:line_number
     return s:EditFile()
@@ -864,16 +894,21 @@ function! s:GoToScoBuffer( bufnumber )
 	    return 1
 	endif
 
-	let l:last_sco_buffer_name = bufname( a:bufnumber )
+        let bufnumber = a:bufnumber
+        if bufnumber == -1
+            let bufnumber = s:last_sco_buffer
+        endif
+
+	let l:last_sco_buffer_name = bufname( bufnumber )
 
 	if l:last_sco_buffer_name !~ "sco$"
-		call <SID>ErrorMsg('sco ['.a:bufnumber.'] buffer not present')
+		call <SID>ErrorMsg('sco ['.bufnumber.'] buffer not present')
 		return 0
 	endif
 
-	exec 'buffer '.a:bufnumber
+	exec 'buffer '.bufnumber
 
-	if bufnr('%') != a:bufnumber
+	if bufnr('%') != bufnumber
 	    call <SID>ErrorMsg("Can't open last sco buffer")
 	    return 0
 	endif
@@ -1214,7 +1249,11 @@ function! <SID>AddSmartMark() "{{{
 
         let line_to_append = s:LineToAppend(1)
         call append( line_to_append, smart_mark_line)
+
         exec line_to_append + 1
+
+        call s:SaveBuffer()
+        exec "edit ".file_name
 endfunction "}}}
 
 function! <SID>IsScoBuffer()
@@ -1467,6 +1506,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, 'c<Space>i - Find Files including this file')
 	call add(l:help_lines, 'c<Space>w - Find Functions calling this function')
 	call add(l:help_lines, 'c<Space>t - Find tag')
+	call add(l:help_lines, 'c<Space>s - store all lines with last search pattern to sco buffer as marks')
 	call add(l:help_lines, 'c<Space>b - Open last sco buffer')
 	call add(l:help_lines, 'c<Space>m - Mark current line')
 	call add(l:help_lines, 'c<Space>n - Mark smart current line')
@@ -1496,6 +1536,7 @@ function! <SID>AddHelpLines() "{{{
 	call add(l:help_lines, ":SCOWhoCall 'functionname' - find functions calling <functionname> function")
 	call add(l:help_lines, ":SCOText 'text' - find text")
 	call add(l:help_lines, ":SCOGrep 'pattern' - find grep pattern")
+	call add(l:help_lines, ":SCOSaveSearch - store all lines with last search pattern to sco buffer as marks")
 	call add(l:help_lines, ":SCOBuffer - go to last sco buffer")
 	call add(l:help_lines, ":SCOMark - mark current line")
 	call add(l:help_lines, ":SCOMarkSmart - mark smart current line")
@@ -1595,6 +1636,7 @@ function! <SID>Prepare_sco_settings() "{{{
 	command! -nargs=1 SCOInclude call <SID>CScopeResult(8, <args>)
         command! -nargs=1 SCOClassInfo call s:AddClassInfo(<args>)
         command! -nargs=1 SCOTag call s:AddTagInfo(<args>)
+        command! SCOSaveSearch call s:SavePreviousSearchAsMarks()
 	command! SCOBuffer call <SID>GoToLastScoBuffer()
 	command! SCOMark call <SID>AddMark()
 	command! SCOMarkSmart call <SID>AddSmartMark()
@@ -1653,8 +1695,8 @@ function! <SID>Prepare_sco_settings() "{{{
         syn match tags_list /\s*\w\+\s*/ nextgroup=tags_separator contained
         syn match tags_separator /,/ nextgroup=tags_list contained
 
-        hi link tags_header         TODO
-        hi link tags_header_header  TODO
+        hi link tags_header         Type
+        hi link tags_header_header  Type
         hi link tags_header_text  Comment
         hi link tags_list       Special
         hi link tags_separator  Comment

@@ -12,6 +12,7 @@ nnoremap <buffer> c<Space>a :Allign<CR>
 
 nnoremap c<Space>g :SCOGlobal expand('<cword>')<CR>
 nnoremap c<Space>c :SCOSymbol expand('<cword>')<CR>
+nnoremap c<Space>s :SCOSaveSearch<CR>
 nnoremap c<Space>t :SCOTag ''<CR>
 nnoremap c<Space>w :SCOWhoCall expand('<cword>')<CR>
 nnoremap c<Space>i :SCOInclude expand('<cfile>')<CR>
