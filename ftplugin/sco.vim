@@ -34,7 +34,7 @@ let s:smart_mark_pattern = s:smart_mark_pattern_without_comment.s:smart_mark_pat
 let s:line_to_append = -1
 
 let s:sco_settings = {}
-let s:sco_requests = {0:'C Symbol', 1:'Global Definition of',4:'Functions calling',5:'Text',6:'Grep',7:'File', 8:'Files including file'}
+let s:sco_requests = {0:'symbol', 1:'global',4:'calling',5:'text',6:'grep',7:'file', 8:'include'}
 let s:last_sco_buffer = -1
 let s:buffer_to_append = -1
 let s:preview = 0
@@ -438,12 +438,12 @@ function! s:AddTagInfo(tag_regexp)
 
     let pattern = a:tag_regexp
     
-    let show_pattern = pattern
     if pattern == ''
         let pattern = expand('<cword>')
         let show_pattern = pattern
         let pattern = '\<'.pattern.'\>'
     endif
+    let show_pattern = substitute( pattern, '[<\>]', "", "g" )
 
     if ! s:GoToLastScoBuffer()
         return
@@ -469,11 +469,16 @@ function! s:AddTagInfo(tag_regexp)
     if empty(result)
         call s:ErrorMsg("Couldn't find \"".show_pattern."\" tag info")
     elseif len(result)>1
-        call append(first_result_line, ">>> Tag \"".show_pattern."\"")
-        call append(s:ResultLineNumber+1, "<<<")
+        call append(first_result_line, ">>>")
+        call append(first_result_line, "tags: tag, ".show_pattern)
+        call append(s:ResultLineNumber+2, "<<<")
     endif
 
     exec first_result_line+1
+    normal zt
+    exec first_result_line+2
+    call s:FoldEnter()
+    exec first_result_line+3
 
     let &tags = old_tags
 endfunction
@@ -857,31 +862,66 @@ endfunction
 function! s:SavePreviousSearchAsMarks()
     let last_template = @/
     let file_name = expand("%:p")
+    let current_line_number = line('.')
+
+
+    let last_template_for_print = substitute( last_template, '[<\>]', "", "g" )
+    let header_line = "header: searches for '".last_template_for_print."' in file: '".file_name."'"
+    let tag_line = "  tags: search, ".last_template_for_print
+
+    let match_number = -1
+    let line_numbers = []
+    call cursor(1, 1)
+    let line_number = search(last_template, 'cW')
+"    call cursor(line_number + 1, 1)
+    let i = 0
+    while line_number > 0
+        if line_number != 0
+            call add(line_numbers, line_number)
+        endif
+
+        if line_number == current_line_number
+            let match_number = i
+        endif
+
+        let line_number = search(last_template, 'W')
+        let i += 1
+    endwhile
+
+    let marks = []
+    for line_number in line_numbers
+        let markline = s:ReceiveSmartMarkLine( line_number )
+        call add(marks, markline)
+    endfor
 
     if ! s:GoToBufferToAppend()
         return
     endif
 
-    let line_to_append = s:LineToAppend(1)
-    let last_template_for_print = substitute( last_template, '[<\>]', "", "g" )
-    let header_line = "header: searches for '".last_template_for_print."' in file: '".file_name."'"
-    let tag_line = "  tags: search, ".last_template_for_print
+    call append( s:LineToAppend(1), header_line )
+    call append( s:LineToAppend(1), tag_line )
 
-    exec "edit ".file_name
+    let block_start = s:LineToAppend(1)
+    call append( block_start, '>>>' )
+    for line in marks
+        call append( s:LineToAppend(1), line )
+    endfor
+    call append( s:LineToAppend(1), '<<<' )
 
-
-    exec "g/".last_template."/SCOMarkSmart"
-    call s:GoToBufferToAppend()
-
-    call append( line_to_append, '>>>' )
-    call append( line_to_append, tag_line)
-    call append( line_to_append, header_line)
-
-    let line_to_append_after = s:LineToAppend(1)
-    call append( line_to_append_after, '<<<' )
-
-    exec line_to_append + 3
+    exec block_start - 1
+    normal zt
+    exec block_start + 1
     call s:FoldEnter()
+    if match_number != -1
+        exec block_start + 2 + match_number
+    endif
+
+    normal zo
+    normal zo
+    normal zc
+
+    nohlsearch
+
 endfunction
 
 function! s:EditFileInLine(line_number)
@@ -945,11 +985,12 @@ function! <SID>CScopeResult(type, word) "{{{
 		echo ""
 		return
 	endif
-	let l:failed = append(l:first_line, '>>> '.l:request_line)
-	let l:failed = append(l:last_line+1, '<<<')
+        let l:failed = append(l:first_line, 'tags: '.s:sco_requests[ a:type ].' ,'.a:word)
+        let l:failed = append(l:first_line+1, '>>> ')
+        let l:failed = append(l:last_line+2, '<<<')
 
-	let l:first_line = l:first_line + 2
-	let l:last_line = l:last_line + 1
+	let l:first_line = l:first_line + 3
+	let l:last_line = l:last_line + 2
 	let l:line_number = l:first_line
 	let l:max_file_name_length = 0
 	let l:max_function_name_length = 0
@@ -994,7 +1035,11 @@ function! <SID>CScopeResult(type, word) "{{{
 
 		let l:line_number = l:line_number + 1
 	endwhile
+	exec ':'.(l:first_line-2)
+        normal zt
 	exec ':'.(l:first_line-1)
+        call s:FoldEnter()
+	exec ':'.(l:first_line)
 endfunction "}}}
 
 " function get line number of open fold >>>
@@ -1235,17 +1280,23 @@ function! <SID>SetCurrentLineAsLineToAppend()
     endif
 endfunction
 
-" add smart mark
-function! <SID>AddSmartMark( line_number ) "{{{
-	let line = getline( a:line_number )
+function! <SID>ReceiveSmartMarkLine( line_number )
+        let line_number = a:line_number
+	let line = getline( line_number )
 	let file_name = expand('%:p')
 	let jumps_count = <SID>Search(line('.'))
 
+        let smart_mark_line = s:CreateSmartMarkLine(file_name, line, jumps_count, line)
+        return smart_mark_line
+endfunction
+
+function! <SID>AddSmartMark( line_number ) "{{{
+        let smart_mark_line = s:ReceiveSmartMarkLine( a:line_number )
+	let file_name = expand('%:p')
 	if ! <SID>GoToBufferToAppend()
 		return
 	endif
 
-        let smart_mark_line = s:CreateSmartMarkLine(file_name, line, jumps_count, line)
 
         let line_to_append = s:LineToAppend(1)
         call append( line_to_append, smart_mark_line)
@@ -1253,7 +1304,7 @@ function! <SID>AddSmartMark( line_number ) "{{{
         exec line_to_append + 1
 
         call s:SaveBuffer()
-        exec "edit ".file_name
+        exec "edit +".a:line_number." ".file_name
 endfunction "}}}
 
 function! <SID>IsScoBuffer()
@@ -1568,7 +1619,7 @@ function! <SID>SetScoFoldOptions()
     let &foldclose='all'
     let &fillchars=&fillchars.',fold: '
 
-    highlight! link Folded Constant
+    highlight! link Folded String
 endfunction
 
 function! <SID>EnterScoBuffer() "{{{
@@ -1697,9 +1748,9 @@ function! <SID>Prepare_sco_settings() "{{{
 
         hi link tags_header         Type
         hi link tags_header_header  Type
-        hi link tags_header_text  Comment
-        hi link tags_list       Special
-        hi link tags_separator  Comment
+        hi link tags_header_text  Special
+        hi link tags_list       Comment
+        hi link tags_separator  String
 
 	hi link sco_header	Define
 	hi link sco_header_param   Identifier
