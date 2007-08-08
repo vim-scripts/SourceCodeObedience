@@ -477,7 +477,7 @@ function! s:AddTagInfo(tag_regexp)
     exec first_result_line+1
     normal zt
     exec first_result_line+2
-    call s:FoldEnter()
+    call s:FoldEnter(0)
     exec first_result_line+3
 
     let &tags = old_tags
@@ -933,7 +933,7 @@ function! s:SavePreviousSearchAsMarks()
     exec block_start - 1
     normal zt
     exec block_start + 1
-    call s:FoldEnter()
+    call s:FoldEnter(0)
     if match_number != -1
         exec block_start + 2 + match_number
     endif
@@ -1060,7 +1060,7 @@ function! <SID>CScopeResult(type, word) "{{{
 	exec ':'.(l:first_line-2)
         normal zt
 	exec ':'.(l:first_line-1)
-        call s:FoldEnter()
+        call s:FoldEnter(0)
 	exec ':'.(l:first_line)
 endfunction "}}}
 
